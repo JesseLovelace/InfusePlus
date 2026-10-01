@@ -26,20 +26,22 @@ injected the same way InfusePlus is.
   controls hidden.
 
 ## Option A (recommended) — add ControlMod to your existing InfusePlus IPA
-Your InfusePlus IPA already bundles Substrate, so we only inject this one tweak.
+Your InfusePlus IPA already bundles Substrate, so this workflow adds *only* our
+one dylib. It does **not** re-run cyan over the whole app (a second cyan pass
+re-patches InfusePlus's own dylibs and corrupts `libswiftIU.dylib` →
+"Invalid mach-o file" at sideload). Instead it copies our dylib into the app,
+repoints its Substrate dependency to the bundled copy, and adds a single load
+command to the main executable with LIEF. Your sideloader re-signs everything
+on install.
 1. In your **InfusePlus fork**, put this whole folder at the repo root as
    `InfuseControlMod/`.
 2. Copy `inject-controlmod-only.yml` into `.github/workflows/`.
-3. (Optional) edit `control` if you want a different package id. It is pre-set to `com.jesselovelace.infusecontrolmod`.
-4. Upload your existing InfusePlus IPA to a direct-download host and run the
-   **"Add ControlMod to existing IPA"** workflow with that URL. Leave App
-   Name / BundleID blank to keep what the IPA already has.
+3. Run the **"Add ControlMod to existing IPA"** workflow with a direct-download
+   URL to your existing InfusePlus IPA.
    - **Google Drive works**: paste the normal share link (e.g.
      `https://drive.google.com/file/d/…/view?usp=sharing`) and make sure the
-     file is shared as **"Anyone with the link"**. The workflow downloads it
-     with `gdown`, which handles Drive's large-file confirmation page (a plain
-     URL would otherwise be served as HTML and fail validation).
-5. Install the resulting IPA.
+     file is shared as **"Anyone with the link"**.
+4. Install the resulting IPA with your usual sideload tool.
 
 ## Option B — build InfusePlus + ControlMod together (from a plain Infuse IPA)
 1–3. Same as above, but copy `build-infuse-controlmod.yml` instead.

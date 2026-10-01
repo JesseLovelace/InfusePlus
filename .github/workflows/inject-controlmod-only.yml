@@ -14,16 +14,6 @@ on:
         default: ""
         required: true
         type: string
-      display_name:
-        description: "App Name (optional; leave blank to keep the current one)"
-        default: ""
-        required: false
-        type: string
-      bundle_id:
-        description: "BundleID (optional; leave blank to keep the current one)"
-        default: ""
-        required: false
-        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -41,11 +31,6 @@ jobs:
         with:
           path: main
           submodules: recursive
-
-      - name: Hide sensitive inputs
-        uses: levibostian/action-hide-sensitive-inputs@v1
-        with:
-          exclude_inputs: display_name,bundle_id
 
       - name: Download IPA (Google Drive aware)
         env:
@@ -83,9 +68,6 @@ jobs:
       - name: Set PATH for GNU make
         run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
 
-      - name: Install cyan
-        run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
-
       # ---- Build InfuseControlMod with Theos ----
       - name: Checkout Theos
         uses: actions/checkout@v4.1.1
@@ -101,22 +83,27 @@ jobs:
           cp -r /tmp/theos-sdks/iPhoneOS16.5.sdk theos/sdks/ || \
           cp -r /tmp/theos-sdks/*.sdk theos/sdks/
 
-      - name: Build control-mod .deb
+      - name: Build control-mod dylib
         env:
           THEOS: ${{ github.workspace }}/theos
         run: |
           cd main/InfuseControlMod
-          make package FINALPACKAGE=1
-          echo "Built packages:"; ls -la packages
-          cp packages/*.deb "${{ github.workspace }}/controlmod.deb"
+          make FINALPACKAGE=1
+          DY=$(find .theos/obj -maxdepth 1 -name 'InfuseControlMod.dylib' | head -1)
+          [ -n "$DY" ] || { echo "::error::Built dylib not found"; exit 1; }
+          echo "Built dylib: $DY"
+          otool -L "$DY" || true
+          cp "$DY" "${{ github.workspace }}/InfuseControlMod.dylib"
 
-      # ---- Inject just the control-mod ----
+      # ---- Surgically add just our dylib (no cyan re-processing) ----
       - name: Inject ControlMod into IPA
         run: |
-          ARGS=(-i input.ipa -o Infuse_ControlMod.ipa -uwef controlmod.deb)
-          if [ -n "${{ inputs.display_name }}" ]; then ARGS+=(-n "${{ inputs.display_name }}"); fi
-          if [ -n "${{ inputs.bundle_id }}" ];  then ARGS+=(-b "${{ inputs.bundle_id }}"); fi
-          cyan "${ARGS[@]}"
+          python3 -m pip install --user --break-system-packages -U lief
+          export PATH="$HOME/.local/bin:$PATH"
+          bash main/InfuseControlMod/tools/surgical_inject.sh \
+            "${{ github.workspace }}/input.ipa" \
+            "${{ github.workspace }}/InfuseControlMod.dylib" \
+            "${{ github.workspace }}/Infuse_ControlMod.ipa"
 
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v2.0.1
