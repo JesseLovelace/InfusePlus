@@ -34,6 +34,11 @@ Your InfusePlus IPA already bundles Substrate, so we only inject this one tweak.
 4. Upload your existing InfusePlus IPA to a direct-download host and run the
    **"Add ControlMod to existing IPA"** workflow with that URL. Leave App
    Name / BundleID blank to keep what the IPA already has.
+   - **Google Drive works**: paste the normal share link (e.g.
+     `https://drive.google.com/file/d/…/view?usp=sharing`) and make sure the
+     file is shared as **"Anyone with the link"**. The workflow downloads it
+     with `gdown`, which handles Drive's large-file confirmation page (a plain
+     URL would otherwise be served as HTML and fail validation).
 5. Install the resulting IPA.
 
 ## Option B — build InfusePlus + ControlMod together (from a plain Infuse IPA)
