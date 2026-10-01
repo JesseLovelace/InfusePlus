@@ -39,6 +39,9 @@ static CFTimeInterval gLastTouch = 0;
 
 @interface FCVideoViewController : UIViewController
 - (id)controlPanel;
+// Backing storage is provided by %property in the %hook below; declaring it
+// here lets the dot-syntax type-check under ARC.
+@property (nonatomic, assign) BOOL icm_hasPlayedItem;
 @end
 
 @protocol _ICM_Panel
