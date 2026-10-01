@@ -98,19 +98,26 @@ jobs:
           IPA_URL: ${{ inputs.ipa_url }}
         run: |
           set -e
-          pipx install --force gdown >/dev/null 2>&1 || pip3 install --user --break-system-packages gdown
+          pipx install --force "gdown>=5.1.0" >/dev/null 2>&1 || \
+            pip3 install --user --break-system-packages -U "gdown>=5.1.0"
           export PATH="$HOME/.local/bin:$PATH"
+          OUT="${{ github.workspace }}/infuse.ipa"
           if echo "$IPA_URL" | grep -qiE 'drive\.google\.com|docs\.google\.com'; then
-            echo "Detected Google Drive link; downloading with gdown..."
-            gdown --fuzzy "$IPA_URL" -O "${{ github.workspace }}/infuse.ipa"
+            ID=$(echo "$IPA_URL" | grep -oE '[-_A-Za-z0-9]{25,}' | head -1)
+            if [ -z "$ID" ]; then
+              echo "::error::Could not find a Google Drive file id in the URL."
+              exit 1
+            fi
+            echo "Detected Google Drive link; file id: $ID"
+            gdown "https://drive.google.com/uc?id=$ID" -O "$OUT"
           else
-            wget "$IPA_URL" --no-verbose -O "${{ github.workspace }}/infuse.ipa"
+            wget "$IPA_URL" --no-verbose -O "$OUT"
           fi
-          ft=$(file --mime-type -b "${{ github.workspace }}/infuse.ipa")
+          ft=$(file --mime-type -b "$OUT")
           echo "Downloaded file type: $ft"
           if [[ "$ft" != "application/zip" && "$ft" != "application/x-ios-app" ]]; then
             echo "::error::Downloaded file is not an IPA (got: $ft). For Google Drive, set the file's sharing to 'Anyone with the link' and paste the normal share URL. First bytes below:"
-            head -c 300 "${{ github.workspace }}/infuse.ipa" || true
+            head -c 300 "$OUT" || true
             exit 1
           fi
 
