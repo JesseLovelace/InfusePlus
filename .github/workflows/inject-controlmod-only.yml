@@ -1,0 +1,109 @@
+# Injects ONLY InfuseControlMod into an IPA that ALREADY has InfusePlus applied.
+# No InfusePlus download, no re-bundling needed.
+#
+# Put this in .github/workflows/ of your InfusePlus fork, with the
+# InfuseControlMod/ folder at the repo root.
+
+name: Add ControlMod to existing IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_url:
+        description: "URL to your IPA that already has InfusePlus"
+        default: ""
+        required: true
+        type: string
+      display_name:
+        description: "App Name (optional; leave blank to keep the current one)"
+        default: ""
+        required: false
+        type: string
+      bundle_id:
+        description: "BundleID (optional; leave blank to keep the current one)"
+        default: ""
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.1
+        with:
+          path: main
+          submodules: recursive
+
+      - name: Hide sensitive inputs
+        uses: levibostian/action-hide-sensitive-inputs@v1
+        with:
+          exclude_inputs: display_name,bundle_id
+
+      - name: Validate IPA URL
+        run: |
+          curl -L -r 0-1023 -o sample.part "${{ inputs.ipa_url }}" > /dev/null 2>&1
+          file_type=$(file --mime-type -b sample.part)
+          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
+            echo "::error::Not a valid IPA file. Detected type: $file_type."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: brew install make ldid dpkg
+
+      - name: Set PATH for GNU make
+        run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Install cyan
+        run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+
+      # ---- Build InfuseControlMod with Theos ----
+      - name: Checkout Theos
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: theos/theos
+          submodules: recursive
+          path: theos
+
+      - name: Install iOS SDK
+        run: |
+          mkdir -p theos/sdks
+          git clone --depth 1 https://github.com/theos/sdks.git /tmp/theos-sdks
+          cp -r /tmp/theos-sdks/iPhoneOS16.5.sdk theos/sdks/ || \
+          cp -r /tmp/theos-sdks/*.sdk theos/sdks/
+
+      - name: Build control-mod .deb
+        env:
+          THEOS: ${{ github.workspace }}/theos
+        run: |
+          cd main/InfuseControlMod
+          make package FINALPACKAGE=1
+          echo "Built packages:"; ls -la packages
+          cp packages/*.deb "${{ github.workspace }}/controlmod.deb"
+
+      - name: Download existing IPA
+        run: wget "${{ inputs.ipa_url }}" --no-verbose -O "${{ github.workspace }}/input.ipa"
+
+      # ---- Inject just the control-mod ----
+      - name: Inject ControlMod into IPA
+        run: |
+          ARGS=(-i input.ipa -o Infuse_ControlMod.ipa -uwef controlmod.deb)
+          if [ -n "${{ inputs.display_name }}" ]; then ARGS+=(-n "${{ inputs.display_name }}"); fi
+          if [ -n "${{ inputs.bundle_id }}" ];  then ARGS+=(-b "${{ inputs.bundle_id }}"); fi
+          cyan "${ARGS[@]}"
+
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2.0.1
+        with:
+          name: Infuse +ControlMod (${{ github.run_number }})
+          files: Infuse_ControlMod.ipa
+          tag_name: controlmod-only-${{ github.run_number }}
+          draft: true

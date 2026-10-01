@@ -1,0 +1,9 @@
+Package: com.jesselovelace.infusecontrolmod
+Name: InfuseControlMod
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Stops Infuse player controls from auto-showing on playlist auto-advance
+Author: JesseLovelace
+Maintainer: JesseLovelace
+Section: Tweaks
+Depends: mobilesubstrate

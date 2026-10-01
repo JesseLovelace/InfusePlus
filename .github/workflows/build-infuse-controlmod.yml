@@ -1,0 +1,121 @@
+# Drop this in .github/workflows/ of your InfusePlus fork.
+# It builds InfuseControlMod with Theos, then injects BOTH the InfusePlus .deb
+# and the control-mod .deb into your decrypted Infuse IPA with cyan.
+#
+# Assumes the InfuseControlMod/ folder (Tweak.x, Makefile, control,
+# InfuseControlMod.plist) sits at the repo root.
+
+name: Create Infuse Plus app (+ ControlMod)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_url:
+        description: "URL to the decrypted IPA file"
+        default: ""
+        required: true
+        type: string
+      tweak_version:
+        description: "InfusePlus tweak version (from dayanch96/InfusePlus/releases)"
+        default: "2.6"
+        required: true
+        type: string
+      display_name:
+        description: "App Name (Optional)"
+        default: "Infuse"
+        required: true
+        type: string
+      bundle_id:
+        description: "BundleID (Optional)"
+        default: "com.firecore.infuse"
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.1
+        with:
+          path: main
+          submodules: recursive
+
+      - name: Hide sensitive inputs
+        uses: levibostian/action-hide-sensitive-inputs@v1
+        with:
+          exclude_inputs: display_name,tweak_version,bundle_id
+
+      - name: Validate IPA URL
+        run: |
+          curl -L -r 0-1023 -o sample.part "${{ inputs.ipa_url }}" > /dev/null 2>&1
+          file_type=$(file --mime-type -b sample.part)
+          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
+            echo "::error::Not a valid IPA file. Detected type: $file_type."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: brew install make ldid dpkg
+
+      - name: Set PATH for GNU make
+        run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Install cyan
+        run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+
+      # ---- Build InfuseControlMod with Theos ----
+      - name: Checkout Theos
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: theos/theos
+          submodules: recursive
+          path: theos
+
+      - name: Install iOS SDK
+        run: |
+          mkdir -p theos/sdks
+          # A single recent iOS SDK is enough; grab it shallow from theos/sdks.
+          git clone --depth 1 https://github.com/theos/sdks.git /tmp/theos-sdks
+          cp -r /tmp/theos-sdks/iPhoneOS16.5.sdk theos/sdks/ || \
+          cp -r /tmp/theos-sdks/*.sdk theos/sdks/
+
+      - name: Build control-mod .deb
+        env:
+          THEOS: ${{ github.workspace }}/theos
+        run: |
+          cd main/InfuseControlMod
+          make package FINALPACKAGE=1
+          echo "Built packages:"; ls -la packages
+          cp packages/*.deb "${{ github.workspace }}/controlmod.deb"
+
+      # ---- Download InfusePlus ----
+      - name: Download Infuse Plus
+        run: |
+          deb_url="https://github.com/dayanch96/InfusePlus/releases/download/v${{ inputs.tweak_version }}/com.dvntm.infuseplus_${{ inputs.tweak_version }}_iphoneos-arm.deb"
+          wget "$deb_url" --no-verbose -O "${{ github.workspace }}/infplus.deb"
+
+      - name: Download Infuse IPA
+        run: wget "${{ inputs.ipa_url }}" --no-verbose -O "${{ github.workspace }}/infuse.ipa"
+
+      # ---- Inject both tweaks ----
+      - name: Inject tweaks into IPA
+        run: |
+          cyan -i infuse.ipa -o InfusePlus_${{ inputs.tweak_version }}.ipa \
+               -uwef infplus.deb controlmod.deb \
+               -n "${{ inputs.display_name }}" -b ${{ inputs.bundle_id }}
+
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2.0.1
+        with:
+          name: InfusePlus v${{ inputs.tweak_version }} +ControlMod (${{ github.run_number }})
+          files: InfusePlus_${{ inputs.tweak_version }}.ipa
+          tag_name: controlmod-${{ github.run_number }}
+          draft: true
